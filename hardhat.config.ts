@@ -1,3 +1,4 @@
+import { Etherscan } from './node_modules/@nomicfoundation/hardhat-verify/src/internal/etherscan';
 import { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox";
 import "@openzeppelin/hardhat-upgrades";
@@ -14,7 +15,7 @@ const config: HardhatUserConfig = {
   },
   etherscan: {
     apiKey: {
-      baseSepolia: process.env.ETHERSCAN_API_KEY!,
+      baseSepolia: process.env.BASESCAN_API_KEY!,
     },
   },
   sourcify: {

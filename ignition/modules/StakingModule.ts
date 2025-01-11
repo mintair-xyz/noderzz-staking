@@ -3,7 +3,7 @@ import { buildModule } from "@nomicfoundation/hardhat-ignition/modules";
 const StakingModule = buildModule("StakingModule", (m) => {
   const proxyAdminOwner = m.getAccount(0);
 
-  const stakingTokenAddress = "0x0000000000000000000000000000000000000000";
+  const stakingTokenAddress = "0xc8712476329B8117d2B4A7B19BdBf2e2Ca4CD500";
 
   const stakingImplementation = m.contract("StakingV1", []);
 
