@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
@@ -23,10 +22,11 @@ contract StakingV1 is
         uint256 timestamp;
     }
 
-    mapping(address => Stake) public stakes;
-
-    event Staked(address indexed user, uint256 amount);
-    event Withdrawn(address indexed user, uint256 amount);
+    
+    mapping(address => Stake[]) public userStakes;
+    
+    event Staked(address indexed user, uint256 amount, uint256 stakeId);
+    event Withdrawn(address indexed user, uint256 amount, uint256 stakeId);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -42,44 +42,63 @@ contract StakingV1 is
 
     function stake(uint256 _amount) external nonReentrant {
         require(_amount > 0, "Cannot stake 0");
-        require(stakes[msg.sender].amount == 0, "Already staked");
-
+        
         stakingToken.safeTransferFrom(msg.sender, address(this), _amount);
-
-        stakes[msg.sender] = Stake({
+        
+        userStakes[msg.sender].push(Stake({
             amount: _amount,
             timestamp: block.timestamp
-        });
+        }));
 
-        emit Staked(msg.sender, _amount);
+        emit Staked(msg.sender, _amount, userStakes[msg.sender].length - 1);
     }
 
-    function withdraw() external nonReentrant {
-        Stake storage userStake = stakes[msg.sender];
-        require(userStake.amount > 0, "No stake found");
+    function withdraw(uint256 _stakeId) external nonReentrant {
+        require(_stakeId < userStakes[msg.sender].length, "Invalid stake ID");
+        
+        Stake storage userStake = userStakes[msg.sender][_stakeId];
+        require(userStake.amount > 0, "Stake already withdrawn");
         require(
             block.timestamp >= userStake.timestamp + lockPeriod,
             "Lock period not ended"
         );
 
         uint256 amount = userStake.amount;
-        delete stakes[msg.sender];
+        userStake.amount = 0; // Mark as withdrawn instead of deleting
 
         stakingToken.safeTransfer(msg.sender, amount);
-
-        emit Withdrawn(msg.sender, amount);
+        emit Withdrawn(msg.sender, amount, _stakeId);
     }
 
     function getStakeInfo(
-        address _staker
+        address _staker,
+        uint256 _stakeId
     ) external view returns (uint256 amount, uint256 timestamp) {
-        Stake memory stake = stakes[_staker];
+        require(_stakeId < userStakes[_staker].length, "Invalid stake ID");
+        Stake memory stake = userStakes[_staker][_stakeId];
         return (stake.amount, stake.timestamp);
     }
 
-    function canWithdraw(address _staker) external view returns (bool) {
-        Stake memory stake = stakes[_staker];
-        return
-            stake.amount > 0 && block.timestamp >= stake.timestamp + lockPeriod;
+    function getAllStakes(
+        address _staker
+    ) external view returns (Stake[] memory) {
+        return userStakes[_staker];
+    }
+
+    function getActiveStakesCount(address _staker) external view returns (uint256) {
+        uint256 count = 0;
+        for (uint256 i = 0; i < userStakes[_staker].length; i++) {
+            if (userStakes[_staker][i].amount > 0) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    function canWithdraw(address _staker, uint256 _stakeId) external view returns (bool) {
+        if (_stakeId >= userStakes[_staker].length) return false;
+        
+        Stake memory stake = userStakes[_staker][_stakeId];
+        return stake.amount > 0 && block.timestamp >= stake.timestamp + lockPeriod;
     }
 }
