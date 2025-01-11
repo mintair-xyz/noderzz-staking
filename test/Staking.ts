@@ -41,6 +41,7 @@ describe("StakingV1", function () {
       expect(await stakingContract.stakingToken()).to.equal(
         await tokenContract.getAddress()
       );
+
       expect(await stakingContract.lockPeriod()).to.equal(WEEK);
     });
   });
