@@ -51,21 +51,42 @@ contract StakingV1 is
         emit Staked(msg.sender, _amount, userStakes[msg.sender].length - 1);
     }
 
-    function withdraw(uint256 _stakeId) external nonReentrant {
-        require(_stakeId < userStakes[msg.sender].length, "Invalid stake ID");
+    function withdraw(
+        uint256[] calldata _stakeIds,
+        uint256 _totalAmount
+    ) external nonReentrant {
+        require(_stakeIds.length > 0, "No stake IDs provided");
+        require(_totalAmount > 0, "Cannot withdraw 0");
 
-        Stake storage userStake = userStakes[msg.sender][_stakeId];
-        require(userStake.amount > 0, "Stake already withdrawn");
-        require(
-            block.timestamp >= userStake.timestamp + lockPeriod,
-            "Lock period not ended"
-        );
+        uint256 remainingAmount = _totalAmount;
 
-        uint256 amount = userStake.amount;
-        userStake.amount = 0;
+        for (uint256 i = 0; i < _stakeIds.length && remainingAmount > 0; i++) {
+            uint256 stakeId = _stakeIds[i];
+            require(
+                stakeId < userStakes[msg.sender].length,
+                "Invalid stake ID"
+            );
 
-        stakingToken.safeTransfer(msg.sender, amount);
-        emit Withdrawn(msg.sender, amount, _stakeId);
+            Stake storage userStake = userStakes[msg.sender][stakeId];
+            require(userStake.amount > 0, "Stake already withdrawn");
+            require(
+                block.timestamp >= userStake.timestamp + lockPeriod,
+                "Lock period not ended"
+            );
+
+            uint256 amountToWithdraw = remainingAmount > userStake.amount
+                ? userStake.amount
+                : remainingAmount;
+
+            userStake.amount = userStake.amount - amountToWithdraw;
+            remainingAmount -= amountToWithdraw;
+
+            emit Withdrawn(msg.sender, amountToWithdraw, stakeId);
+        }
+
+        require(remainingAmount == 0, "Insufficient staked balance");
+
+        stakingToken.safeTransfer(msg.sender, _totalAmount);
     }
 
     function getStakeInfo(
