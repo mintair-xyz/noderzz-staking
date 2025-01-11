@@ -3,6 +3,7 @@ import { ethers, upgrades } from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
 import { StakingV1, MockERC20 } from "../typechain-types";
 import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
+import { BigNumberish } from "ethers";
 
 describe("StakingV1", function () {
   let stakingContract: StakingV1;
@@ -87,7 +88,7 @@ describe("StakingV1", function () {
 
     it("Should not allow withdrawal before lock period", async function () {
       await expect(
-        stakingContract.connect(user1).withdraw(0)
+        stakingContract.connect(user1).withdraw([0], ethers.parseEther("100"))
       ).to.be.revertedWith("Lock period not ended");
     });
 
@@ -95,7 +96,9 @@ describe("StakingV1", function () {
       await time.increase(WEEK);
 
       const initialBalance = await tokenContract.balanceOf(user1.address);
-      await stakingContract.connect(user1).withdraw(0);
+      await stakingContract
+        .connect(user1)
+        .withdraw([0], ethers.parseEther("100"));
       const finalBalance = await tokenContract.balanceOf(user1.address);
 
       expect(finalBalance - initialBalance).to.equal(ethers.parseEther("100"));
@@ -103,17 +106,51 @@ describe("StakingV1", function () {
 
     it("Should not allow double withdrawal", async function () {
       await time.increase(WEEK);
-      await stakingContract.connect(user1).withdraw(0);
+      await stakingContract
+        .connect(user1)
+        .withdraw([0], ethers.parseEther("100"));
 
       await expect(
-        stakingContract.connect(user1).withdraw(0)
+        stakingContract.connect(user1).withdraw([0], ethers.parseEther("100"))
       ).to.be.revertedWith("Stake already withdrawn");
     });
 
     it("Should reject invalid stake ID", async function () {
       await expect(
-        stakingContract.connect(user1).withdraw(99)
+        stakingContract.connect(user1).withdraw([99], ethers.parseEther("100"))
       ).to.be.revertedWith("Invalid stake ID");
+    });
+
+    it("Should allow withdrawing from multiple stakes", async function () {
+      await time.increase(WEEK);
+
+      const initialBalance = await tokenContract.balanceOf(user1.address);
+      await stakingContract
+        .connect(user1)
+        .withdraw([0, 1], ethers.parseEther("300"));
+      const finalBalance = await tokenContract.balanceOf(user1.address);
+
+      expect(finalBalance - initialBalance).to.equal(ethers.parseEther("300"));
+    });
+
+    it("Should fail if total amount exceeds available stake amounts", async function () {
+      await time.increase(WEEK);
+
+      await expect(
+        stakingContract.connect(user1).withdraw([0], ethers.parseEther("150"))
+      ).to.be.revertedWith("Insufficient staked balance");
+    });
+
+    it("Should fail if no stake IDs are provided", async function () {
+      await expect(
+        stakingContract.connect(user1).withdraw([], ethers.parseEther("100"))
+      ).to.be.revertedWith("No stake IDs provided");
+    });
+
+    it("Should fail if trying to withdraw 0 amount", async function () {
+      await expect(
+        stakingContract.connect(user1).withdraw([0], 0)
+      ).to.be.revertedWith("Cannot withdraw 0");
     });
   });
 
@@ -138,7 +175,9 @@ describe("StakingV1", function () {
       ).to.equal(2);
 
       await time.increase(WEEK);
-      await stakingContract.connect(user1).withdraw(0);
+      await stakingContract
+        .connect(user1)
+        .withdraw([0], ethers.parseEther("100"));
 
       expect(
         await stakingContract.getActiveStakesCount(user1.address)
@@ -158,7 +197,9 @@ describe("StakingV1", function () {
       await time.increase(WEEK);
       expect(await stakingContract.canWithdraw(user1.address, 0)).to.be.true;
 
-      await stakingContract.connect(user1).withdraw(0);
+      await stakingContract
+        .connect(user1)
+        .withdraw([0], ethers.parseEther("100"));
       expect(await stakingContract.canWithdraw(user1.address, 0)).to.be.false;
     });
   });
