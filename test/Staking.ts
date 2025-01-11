@@ -1,153 +1,177 @@
-import { expect } from "chai";
-import { ethers, upgrades } from "hardhat";
-import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
-import { time } from "@nomicfoundation/hardhat-network-helpers";
-import { StakingV1, MockERC20 } from "../typechain-types";
-import { Signer } from "ethers";
+const { expect } = require("chai");
+const { ethers, upgrades } = require("hardhat");
+const { time } = require("@nomicfoundation/hardhat-network-helpers");
 
 describe("StakingV1", function () {
-  let staking: StakingV1;
-  let mockToken: MockERC20;
-  let owner: Signer;
-  let staker1: Signer;
-  let staker2: Signer;
+    let StakingV1;
+    let stakingContract;
+    let tokenContract;
+    let owner;
+    let user1;
+    let user2;
+    const WEEK = 7 * 24 * 60 * 60; // 1 week in seconds
 
-  async function deployStakingFixture() {
-    const [owner, staker1, staker2] = await ethers.getSigners();
+    beforeEach(async function () {
+        // Deploy mock ERC20 token
+        const MockToken = await ethers.getContractFactory("MockERC20");
+        tokenContract = await MockToken.deploy("Mock Token", "MTK");
+        await tokenContract.deployed();
 
-    const MockToken = await ethers.getContractFactory("MockERC20");
-    const mockToken = await MockToken.deploy("Mock Token", "MTK");
-    await mockToken.waitForDeployment();
+        // Deploy staking contract
+        StakingV1 = await ethers.getContractFactory("StakingV1");
+        stakingContract = await upgrades.deployProxy(StakingV1, [tokenContract.address]);
+        await stakingContract.deployed();
 
-    const Staking = await ethers.getContractFactory("StakingV1");
-    const staking = await upgrades.deployProxy(Staking as any, [
-      mockToken.target,
-    ]);
-    await staking.waitForDeployment();
+        [owner, user1, user2] = await ethers.getSigners();
 
-    const mintAmount = ethers.parseEther("1000");
-    await mockToken.mint(staker1.address, mintAmount);
-    await mockToken.mint(staker2.address, mintAmount);
+        // Mint tokens to users
+        await tokenContract.mint(user1.address, ethers.utils.parseEther("1000"));
+        await tokenContract.mint(user2.address, ethers.utils.parseEther("1000"));
 
-    await mockToken.connect(staker1).approve(staking.target, mintAmount);
-    await mockToken.connect(staker2).approve(staking.target, mintAmount);
-
-    return { staking, mockToken, owner, staker1, staker2, mintAmount };
-  }
-
-  describe("Deployment", function () {
-    it("Should deploy with correct initial state", async function () {
-      const { staking, mockToken } = await loadFixture(deployStakingFixture);
-
-      expect(await staking.stakingToken()).to.equal(mockToken.target);
-      expect(await staking.lockPeriod()).to.equal(7 * 24 * 60 * 60);
-    });
-  });
-
-  describe("Staking Operations", function () {
-    it("Should allow staking tokens and emit event", async function () {
-      const { staking, staker1, mintAmount } = await loadFixture(
-        deployStakingFixture
-      );
-      const stakeAmount = ethers.parseEther("100");
-
-      await expect(staking.connect(staker1).stake(stakeAmount))
-        .to.emit(staking, "Staked")
-        .withArgs(staker1.address, stakeAmount);
-
-      const stakeInfo = await staking.getStakeInfo(staker1.address);
-      expect(stakeInfo[0]).to.equal(stakeAmount);
+        // Approve staking contract
+        await tokenContract.connect(user1).approve(stakingContract.address, ethers.constants.MaxUint256);
+        await tokenContract.connect(user2).approve(stakingContract.address, ethers.constants.MaxUint256);
     });
 
-    it("Should track stake timestamp correctly", async function () {
-      const { staking, staker1 } = await loadFixture(deployStakingFixture);
-      const stakeAmount = ethers.parseEther("100");
-
-      const txn = await staking.connect(staker1).stake(stakeAmount);
-      const receipt = await txn.wait();
-      const block = await ethers.provider.getBlock(receipt!.blockNumber);
-
-      const stakeInfo = await staking.getStakeInfo(staker1.address);
-      expect(stakeInfo[1]).to.equal(block!.timestamp);
+    describe("Initialization", function () {
+        it("Should initialize with correct token and lock period", async function () {
+            expect(await stakingContract.stakingToken()).to.equal(tokenContract.address);
+            expect(await stakingContract.lockPeriod()).to.equal(WEEK);
+        });
     });
 
-    it("Should prevent staking zero amount", async function () {
-      const { staking, staker1 } = await loadFixture(deployStakingFixture);
-      await expect(staking.connect(staker1).stake(0)).to.be.revertedWith(
-        "Cannot stake 0"
-      );
+    describe("Staking", function () {
+        it("Should allow multiple stakes from the same user", async function () {
+            const amount1 = ethers.utils.parseEther("100");
+            const amount2 = ethers.utils.parseEther("200");
+
+            await stakingContract.connect(user1).stake(amount1);
+            await stakingContract.connect(user1).stake(amount2);
+
+            const stakes = await stakingContract.getAllStakes(user1.address);
+            expect(stakes.length).to.equal(2);
+            expect(stakes[0].amount).to.equal(amount1);
+            expect(stakes[1].amount).to.equal(amount2);
+        });
+
+        it("Should emit Staked event with correct stake ID", async function () {
+            const amount = ethers.utils.parseEther("100");
+
+            await expect(stakingContract.connect(user1).stake(amount))
+                .to.emit(stakingContract, "Staked")
+                .withArgs(user1.address, amount, 0);
+
+            await expect(stakingContract.connect(user1).stake(amount))
+                .to.emit(stakingContract, "Staked")
+                .withArgs(user1.address, amount, 1);
+        });
+
+        it("Should reject zero amount stakes", async function () {
+            await expect(stakingContract.connect(user1).stake(0))
+                .to.be.revertedWith("Cannot stake 0");
+        });
     });
 
-    it("Should prevent multiple stakes from same address", async function () {
-      const { staking, staker1 } = await loadFixture(deployStakingFixture);
-      const stakeAmount = ethers.parseEther("100");
+    describe("Withdrawal", function () {
+        beforeEach(async function () {
+            await stakingContract.connect(user1).stake(ethers.utils.parseEther("100"));
+            await stakingContract.connect(user1).stake(ethers.utils.parseEther("200"));
+        });
 
-      await staking.connect(staker1).stake(stakeAmount);
-      await expect(
-        staking.connect(staker1).stake(stakeAmount)
-      ).to.be.revertedWith("Already staked");
-    });
-  });
+        it("Should not allow withdrawal before lock period", async function () {
+            await expect(stakingContract.connect(user1).withdraw(0))
+                .to.be.revertedWith("Lock period not ended");
+        });
 
-  describe("Withdrawal Operations", function () {
-    it("Should prevent early withdrawal", async function () {
-      const { staking, staker1 } = await loadFixture(deployStakingFixture);
-      const stakeAmount = ethers.parseEther("100");
+        it("Should allow withdrawal after lock period", async function () {
+            await time.increase(WEEK);
 
-      await staking.connect(staker1).stake(stakeAmount);
-      await expect(staking.connect(staker1).withdraw()).to.be.revertedWith(
-        "Lock period not ended"
-      );
-    });
+            const initialBalance = await tokenContract.balanceOf(user1.address);
+            await stakingContract.connect(user1).withdraw(0);
+            const finalBalance = await tokenContract.balanceOf(user1.address);
 
-    it("Should allow withdrawal after lock period", async function () {
-      const { staking, staker1, mockToken } = await loadFixture(
-        deployStakingFixture
-      );
-      const stakeAmount = ethers.parseEther("100");
+            expect(finalBalance.sub(initialBalance)).to.equal(ethers.utils.parseEther("100"));
+        });
 
-      await staking.connect(staker1).stake(stakeAmount);
-      await time.increase(7 * 24 * 60 * 60 + 1); // 1 week + 1 second
+        it("Should not allow double withdrawal", async function () {
+            await time.increase(WEEK);
+            await stakingContract.connect(user1).withdraw(0);
 
-      const initialBalance = await mockToken.balanceOf(staker1.address);
+            await expect(stakingContract.connect(user1).withdraw(0))
+                .to.be.revertedWith("Stake already withdrawn");
+        });
 
-      await expect(staking.connect(staker1).withdraw())
-        .to.emit(staking, "Withdrawn")
-        .withArgs(staker1.address, stakeAmount);
-
-      const finalBalance = await mockToken.balanceOf(staker1.address);
-      expect(finalBalance - initialBalance).to.equal(stakeAmount);
+        it("Should reject invalid stake ID", async function () {
+            await expect(stakingContract.connect(user1).withdraw(99))
+                .to.be.revertedWith("Invalid stake ID");
+        });
     });
 
-    it("Should prevent withdrawal with no stake", async function () {
-      const { staking, staker1 } = await loadFixture(deployStakingFixture);
-      await expect(staking.connect(staker1).withdraw()).to.be.revertedWith(
-        "No stake found"
-      );
+    describe("View Functions", function () {
+        beforeEach(async function () {
+            await stakingContract.connect(user1).stake(ethers.utils.parseEther("100"));
+            await stakingContract.connect(user1).stake(ethers.utils.parseEther("200"));
+        });
+
+        it("Should return correct stake info", async function () {
+            const [amount, timestamp] = await stakingContract.getStakeInfo(user1.address, 0);
+            expect(amount).to.equal(ethers.utils.parseEther("100"));
+        });
+
+        it("Should return correct active stakes count", async function () {
+            expect(await stakingContract.getActiveStakesCount(user1.address)).to.equal(2);
+
+            await time.increase(WEEK);
+            await stakingContract.connect(user1).withdraw(0);
+
+            expect(await stakingContract.getActiveStakesCount(user1.address)).to.equal(1);
+        });
+
+        it("Should return all stakes", async function () {
+            const stakes = await stakingContract.getAllStakes(user1.address);
+            expect(stakes.length).to.equal(2);
+            expect(stakes[0].amount).to.equal(ethers.utils.parseEther("100"));
+            expect(stakes[1].amount).to.equal(ethers.utils.parseEther("200"));
+        });
+
+        it("Should correctly check if stake can be withdrawn", async function () {
+            expect(await stakingContract.canWithdraw(user1.address, 0)).to.be.false;
+
+            await time.increase(WEEK);
+            expect(await stakingContract.canWithdraw(user1.address, 0)).to.be.true;
+
+            await stakingContract.connect(user1).withdraw(0);
+            expect(await stakingContract.canWithdraw(user1.address, 0)).to.be.false;
+        });
     });
-  });
 
-  describe("View Functions", function () {
-    it("Should correctly report canWithdraw status", async function () {
-      const { staking, staker1 } = await loadFixture(deployStakingFixture);
-      const stakeAmount = ethers.parseEther("100");
+    describe("Edge Cases", function () {
+        it("Should handle multiple users with multiple stakes", async function () {
+            await stakingContract.connect(user1).stake(ethers.utils.parseEther("100"));
+            await stakingContract.connect(user2).stake(ethers.utils.parseEther("200"));
+            await stakingContract.connect(user1).stake(ethers.utils.parseEther("300"));
 
-      await staking.connect(staker1).stake(stakeAmount);
-      expect(await staking.canWithdraw(staker1.address)).to.be.false;
+            const user1Stakes = await stakingContract.getAllStakes(user1.address);
+            const user2Stakes = await stakingContract.getAllStakes(user2.address);
 
-      await time.increase(7 * 24 * 60 * 60 + 1);
-      expect(await staking.canWithdraw(staker1.address)).to.be.true;
+            expect(user1Stakes.length).to.equal(2);
+            expect(user2Stakes.length).to.equal(1);
+        });
+
+        it("Should maintain correct state after multiple operations", async function () {
+            await stakingContract.connect(user1).stake(ethers.utils.parseEther("100"));
+            await stakingContract.connect(user1).stake(ethers.utils.parseEther("200"));
+            
+            await time.increase(WEEK);
+            await stakingContract.connect(user1).withdraw(0);
+            
+            await stakingContract.connect(user1).stake(ethers.utils.parseEther("300"));
+            
+            const stakes = await stakingContract.getAllStakes(user1.address);
+            expect(stakes.length).to.equal(3);
+            expect(stakes[0].amount).to.equal(0); // Withdrawn
+            expect(stakes[1].amount).to.equal(ethers.utils.parseEther("200"));
+            expect(stakes[2].amount).to.equal(ethers.utils.parseEther("300"));
+        });
     });
-
-    it("Should return correct stake info", async function () {
-      const { staking, staker1 } = await loadFixture(deployStakingFixture);
-      const stakeAmount = ethers.parseEther("100");
-
-      await staking.connect(staker1).stake(stakeAmount);
-      const [amount, timestamp] = await staking.getStakeInfo(staker1.address);
-
-      expect(amount).to.equal(stakeAmount);
-      expect(timestamp).to.be.gt(0);
-    });
-  });
 });
