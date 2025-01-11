@@ -22,9 +22,8 @@ contract StakingV1 is
         uint256 timestamp;
     }
 
-    
     mapping(address => Stake[]) public userStakes;
-    
+
     event Staked(address indexed user, uint256 amount, uint256 stakeId);
     event Withdrawn(address indexed user, uint256 amount, uint256 stakeId);
 
@@ -42,20 +41,19 @@ contract StakingV1 is
 
     function stake(uint256 _amount) external nonReentrant {
         require(_amount > 0, "Cannot stake 0");
-        
+
         stakingToken.safeTransferFrom(msg.sender, address(this), _amount);
-        
-        userStakes[msg.sender].push(Stake({
-            amount: _amount,
-            timestamp: block.timestamp
-        }));
+
+        userStakes[msg.sender].push(
+            Stake({amount: _amount, timestamp: block.timestamp})
+        );
 
         emit Staked(msg.sender, _amount, userStakes[msg.sender].length - 1);
     }
 
     function withdraw(uint256 _stakeId) external nonReentrant {
         require(_stakeId < userStakes[msg.sender].length, "Invalid stake ID");
-        
+
         Stake storage userStake = userStakes[msg.sender][_stakeId];
         require(userStake.amount > 0, "Stake already withdrawn");
         require(
@@ -64,7 +62,7 @@ contract StakingV1 is
         );
 
         uint256 amount = userStake.amount;
-        userStake.amount = 0; // Mark as withdrawn instead of deleting
+        userStake.amount = 0;
 
         stakingToken.safeTransfer(msg.sender, amount);
         emit Withdrawn(msg.sender, amount, _stakeId);
@@ -85,7 +83,9 @@ contract StakingV1 is
         return userStakes[_staker];
     }
 
-    function getActiveStakesCount(address _staker) external view returns (uint256) {
+    function getActiveStakesCount(
+        address _staker
+    ) external view returns (uint256) {
         uint256 count = 0;
         for (uint256 i = 0; i < userStakes[_staker].length; i++) {
             if (userStakes[_staker][i].amount > 0) {
@@ -95,10 +95,14 @@ contract StakingV1 is
         return count;
     }
 
-    function canWithdraw(address _staker, uint256 _stakeId) external view returns (bool) {
+    function canWithdraw(
+        address _staker,
+        uint256 _stakeId
+    ) external view returns (bool) {
         if (_stakeId >= userStakes[_staker].length) return false;
-        
+
         Stake memory stake = userStakes[_staker][_stakeId];
-        return stake.amount > 0 && block.timestamp >= stake.timestamp + lockPeriod;
+        return
+            stake.amount > 0 && block.timestamp >= stake.timestamp + lockPeriod;
     }
 }
