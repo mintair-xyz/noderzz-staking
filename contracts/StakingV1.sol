@@ -126,4 +126,8 @@ contract StakingV1 is
         return
             stake.amount > 0 && block.timestamp >= stake.timestamp + lockPeriod;
     }
+
+    function updateLockPeriod(uint256 _newLockPeriod) external onlyOwner {
+        lockPeriod = _newLockPeriod;
+    }
 }
