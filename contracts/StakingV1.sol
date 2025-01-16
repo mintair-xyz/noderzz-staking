@@ -18,16 +18,21 @@ contract StakingV1 is
 
     IERC20 public stakingToken;
     uint256 public lockPeriod;
+    uint256 public REWARD_RATE;
+    uint256 public constant REWARD_PRECISION = 1e12;
 
     struct Stake {
         uint256 amount;
         uint256 timestamp;
+        uint256 rewardDebt;
     }
 
     mapping(address => Stake[]) public userStakes;
+    mapping(address => uint256) public unclaimedRewards;
 
     event Staked(address indexed user, uint256 amount, uint256 stakeId);
     event Withdrawn(address indexed user, uint256 amount, uint256 stakeId);
+    event RewardsClaimed(address indexed user, uint256 amount);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -39,6 +44,7 @@ contract StakingV1 is
         __ReentrancyGuard_init();
         __UUPSUpgradeable_init();
         stakingToken = IERC20(_stakingToken);
+        REWARD_RATE = 25;
         lockPeriod = 1 weeks;
     }
 
@@ -49,19 +55,80 @@ contract StakingV1 is
     function stake(uint256 _amount) external nonReentrant {
         require(_amount > 0, "Cannot stake 0");
 
+        _updateRewards(msg.sender);
+
         stakingToken.safeTransferFrom(msg.sender, address(this), _amount);
 
         userStakes[msg.sender].push(
-            Stake({amount: _amount, timestamp: block.timestamp})
+            Stake({amount: _amount, timestamp: block.timestamp, rewardDebt: 0})
         );
 
         emit Staked(msg.sender, _amount, userStakes[msg.sender].length - 1);
+    }
+
+    function _calculateRewards(
+        uint256 _amount,
+        uint256 _duration
+    ) internal view returns (uint256) {
+        uint256 preciseAmount = _amount * REWARD_PRECISION;
+        uint256 annualRate = (REWARD_RATE * REWARD_PRECISION) / 100;
+        uint256 rewards = (preciseAmount * annualRate * _duration) /
+            (365 days * REWARD_PRECISION);
+        return rewards / REWARD_PRECISION;
+    }
+
+    function _updateRewards(address _user) internal {
+        Stake[] storage stakes = userStakes[_user];
+
+        for (uint256 i = 0; i < stakes.length; i++) {
+            Stake storage stake = stakes[i];
+            if (stake.amount > 0 && block.timestamp > stake.timestamp) {
+                uint256 timeElapsed = block.timestamp - stake.timestamp;
+                uint256 rewards = _calculateRewards(stake.amount, timeElapsed);
+                uint256 newRewards = rewards - stake.rewardDebt;
+                if (newRewards > 0) {
+                    unclaimedRewards[_user] += newRewards;
+                    stake.rewardDebt = rewards;
+                }
+            }
+        }
+    }
+
+    function claimRewards() external nonReentrant {
+        _updateRewards(msg.sender);
+        uint256 rewards = unclaimedRewards[msg.sender];
+        require(rewards / REWARD_PRECISION > 0, "No rewards to claim");
+
+        unclaimedRewards[msg.sender] = 0;
+        stakingToken.safeTransfer(msg.sender, rewards);
+
+        emit RewardsClaimed(msg.sender, rewards);
+    }
+
+    function getUserAccruedRewards(
+        address _user
+    ) external view returns (uint256) {
+        uint256 pendingRewards = unclaimedRewards[_user];
+        Stake[] storage stakes = userStakes[_user];
+
+        for (uint256 i = 0; i < stakes.length; i++) {
+            Stake storage stake = stakes[i];
+            if (stake.amount > 0) {
+                uint256 timeElapsed = block.timestamp - stake.timestamp;
+                uint256 rewards = _calculateRewards(stake.amount, timeElapsed);
+                pendingRewards += (rewards - stake.rewardDebt);
+            }
+        }
+
+        return pendingRewards;
     }
 
     function withdraw(
         uint256[] calldata _stakeIds,
         uint256 _totalAmount
     ) external nonReentrant {
+        _updateRewards(msg.sender);
+
         require(_stakeIds.length > 0, "No stake IDs provided");
         require(_totalAmount > 0, "Cannot withdraw 0");
 
@@ -136,5 +203,10 @@ contract StakingV1 is
 
     function updateLockPeriod(uint256 _newLockPeriod) external onlyOwner {
         lockPeriod = _newLockPeriod;
+    }
+
+    function updateRewardRate(uint256 _newRewardRate) external onlyOwner {
+        require(_newRewardRate > 0, "Reward rate must be greater than 0");
+        REWARD_RATE = _newRewardRate;
     }
 }

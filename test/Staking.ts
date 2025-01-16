@@ -203,4 +203,89 @@ describe("StakingV1", function () {
       expect(await stakingContract.canWithdraw(user1.address, 0)).to.be.false;
     });
   });
+
+  describe("Rewards", function () {
+    beforeEach(async function () {
+      await stakingContract.connect(user1).stake(ethers.parseEther("100"));
+    });
+
+    it("Should calculate rewards within expected range", async function () {
+      await time.increase(365 * 24 * 60 * 60);
+
+      const expectedReward = ethers.parseEther("25");
+      const pendingRewards = await stakingContract.getUserAccruedRewards(
+        user1.address
+      );
+      expect(pendingRewards).to.be.closeTo(
+        expectedReward,
+        ethers.parseEther("0.01")
+      );
+    });
+
+    it("Should allow claiming rewards within expected range", async function () {
+      await time.increase(365 * 24 * 60 * 60);
+
+      const initialBalance = await tokenContract.balanceOf(user1.address);
+      await stakingContract.connect(user1).claimRewards();
+      const finalBalance = await tokenContract.balanceOf(user1.address);
+
+      const expectedReward = ethers.parseEther("25");
+      expect(finalBalance - initialBalance).to.be.closeTo(
+        expectedReward,
+        ethers.parseEther("0.01")
+      );
+    });
+
+    it("Should not allow claiming zero rewards", async function () {
+      await expect(
+        stakingContract.connect(user1).claimRewards()
+      ).to.be.revertedWith("No rewards to claim");
+    });
+
+    it("Should accumulate rewards from multiple stakes within expected range", async function () {
+      await time.increase(180 * 24 * 60 * 60);
+      await stakingContract.connect(user1).stake(ethers.parseEther("100"));
+
+      await time.increase(180 * 24 * 60 * 60);
+
+      const expectedReward = ethers.parseEther("37.5");
+      const pendingRewards = await stakingContract.getUserAccruedRewards(
+        user1.address
+      );
+      expect(pendingRewards).to.be.closeTo(
+        expectedReward,
+        ethers.parseEther("1")
+      );
+    });
+
+    it("Should update reward rate correctly within expected range", async function () {
+      await stakingContract.connect(owner).updateRewardRate(50);
+
+      await time.increase(365 * 24 * 60 * 60);
+
+      const expectedReward = ethers.parseEther("50");
+      const pendingRewards = await stakingContract.getUserAccruedRewards(
+        user1.address
+      );
+      expect(pendingRewards).to.be.closeTo(
+        expectedReward,
+        ethers.parseEther("0.01")
+      );
+    });
+
+    it("Should not allow setting zero reward rate", async function () {
+      await expect(
+        stakingContract.connect(owner).updateRewardRate(0)
+      ).to.be.revertedWith("Reward rate must be greater than 0");
+    });
+
+    it("Should not allow non-owner to update reward rate", async function () {
+      await expect(stakingContract.connect(user1).updateRewardRate(50))
+        .to.be.revertedWithCustomError(
+          stakingContract,
+          "OwnableUnauthorizedAccount"
+        )
+        .withArgs(user1.address);
+    });
+  });
 });

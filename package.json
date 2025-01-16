@@ -2,7 +2,8 @@
   "name": "hardhat-project",
   "scripts": {
     "test": "hardhat test",
-    "deploy": "hardhat ignition deploy ignition/modules/StakingModule.ts --network baseSepolia"
+    "deploy": "hardhat ignition deploy ignition/modules/StakingModule.ts --network baseSepolia",
+    "compile": "hardhat compile"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-chai-matchers": "^2.0.0",
