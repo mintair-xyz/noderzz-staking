@@ -1,7 +1,7 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
@@ -10,7 +10,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract StakingV1 is
     Initializable,
-    OwnableUpgradeable,
+    Ownable2StepUpgradeable,
     ReentrancyGuardUpgradeable,
     UUPSUpgradeable
 {
@@ -33,6 +33,10 @@ contract StakingV1 is
     event Staked(address indexed user, uint256 amount, uint256 stakeId);
     event Withdrawn(address indexed user, uint256 amount, uint256 stakeId);
     event RewardsClaimed(address indexed user, uint256 amount);
+    event Paused(address account);
+    event Unpaused(address account);
+
+    bool public paused;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -40,19 +44,38 @@ contract StakingV1 is
     }
 
     function initialize(address _stakingToken) public initializer {
-        __Ownable_init(msg.sender);
+        require(_stakingToken != address(0), "Invalid staking token address");
+        __Ownable2Step_init();
         __ReentrancyGuard_init();
         __UUPSUpgradeable_init();
         stakingToken = IERC20(_stakingToken);
         REWARD_RATE = 25;
         lockPeriod = 1 weeks;
+        paused = false;
     }
 
     function _authorizeUpgrade(
         address newImplementation
     ) internal override onlyOwner {}
 
-    function stake(uint256 _amount) external nonReentrant {
+    modifier whenNotPaused() {
+        require(!paused, "Contract is paused");
+        _;
+    }
+
+    function pause() external onlyOwner {
+        require(!paused, "Contract is already paused");
+        paused = true;
+        emit Paused(msg.sender);
+    }
+
+    function unpause() external onlyOwner {
+        require(paused, "Contract is not paused");
+        paused = false;
+        emit Unpaused(msg.sender);
+    }
+
+    function stake(uint256 _amount) external nonReentrant whenNotPaused {
         require(_amount > 0, "Cannot stake 0");
 
         _updateRewards(msg.sender);
@@ -94,7 +117,7 @@ contract StakingV1 is
         }
     }
 
-    function claimRewards() external nonReentrant {
+    function claimRewards() external nonReentrant whenNotPaused {
         _updateRewards(msg.sender);
         uint256 rewards = unclaimedRewards[msg.sender];
         require(rewards / REWARD_PRECISION > 0, "No rewards to claim");
@@ -126,16 +149,21 @@ contract StakingV1 is
     function withdraw(
         uint256[] calldata _stakeIds,
         uint256 _totalAmount
-    ) external nonReentrant {
-        _updateRewards(msg.sender);
-
+    ) external nonReentrant whenNotPaused {
+        require(_stakeIds.length <= 50, "Batch size too large");
         require(_stakeIds.length > 0, "No stake IDs provided");
         require(_totalAmount > 0, "Cannot withdraw 0");
 
+        _updateRewards(msg.sender);
+
         uint256 remainingAmount = _totalAmount;
+        bool[] memory processedIds = new bool[](_stakeIds.length);
 
         for (uint256 i = 0; i < _stakeIds.length && remainingAmount > 0; i++) {
             uint256 stakeId = _stakeIds[i];
+            require(!processedIds[stakeId], "Duplicate stake ID");
+            processedIds[stakeId] = true;
+
             require(
                 stakeId < userStakes[msg.sender].length,
                 "Invalid stake ID"
