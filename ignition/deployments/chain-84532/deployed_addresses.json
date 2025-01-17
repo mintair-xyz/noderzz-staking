@@ -1,0 +1,6 @@
+{
+  "MockERC20Module#MockERC20": "0xc8712476329B8117d2B4A7B19BdBf2e2Ca4CD500",
+  "StakingModule#StakingV1": "0x6E8219aa2ee7E7c9C81436D9eF05232fd60e5B95",
+  "StakingModule#TransparentUpgradeableProxy": "0x7f5650aC43f5c01B87168C46beFA6Dd29414FA13",
+  "StakingModule#StakingProxy": "0x7f5650aC43f5c01B87168C46beFA6Dd29414FA13"
+}

@@ -3,7 +3,8 @@
   "scripts": {
     "test": "hardhat test",
     "deploy": "hardhat ignition deploy ignition/modules/StakingModule.ts --network baseSepolia",
-    "compile": "hardhat compile"
+    "compile": "hardhat compile",
+    "deploy-token": "hardhat ignition deploy ignition/modules/MockERC20.ts --network baseSepolia"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-chai-matchers": "^2.0.0",
