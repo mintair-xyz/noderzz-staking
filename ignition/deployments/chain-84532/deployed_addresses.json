@@ -1,6 +1,5 @@
 {
-  "MockERC20Module#MockERC20": "0xc8712476329B8117d2B4A7B19BdBf2e2Ca4CD500",
-  "StakingModule#StakingV1": "0x6E8219aa2ee7E7c9C81436D9eF05232fd60e5B95",
-  "StakingModule#TransparentUpgradeableProxy": "0x7f5650aC43f5c01B87168C46beFA6Dd29414FA13",
-  "StakingModule#StakingProxy": "0x7f5650aC43f5c01B87168C46beFA6Dd29414FA13"
+  "StakingModule#StakingV1": "0xe3f228cA7F8Bd0B6E35Bfd44a96d12A483C455E9",
+  "StakingModule#TransparentUpgradeableProxy": "0xdD46c22059d40e692b2059c19D803cA68cca76Fb",
+  "StakingModule#StakingProxy": "0xdD46c22059d40e692b2059c19D803cA68cca76Fb"
 }

@@ -46,6 +46,7 @@ contract StakingV1 is
     function initialize(address _stakingToken) public initializer {
         require(_stakingToken != address(0), "Invalid staking token address");
         __Ownable2Step_init();
+        __Ownable_init(msg.sender);
         __ReentrancyGuard_init();
         __UUPSUpgradeable_init();
         stakingToken = IERC20(_stakingToken);
